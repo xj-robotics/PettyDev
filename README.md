@@ -1,2 +1,2 @@
-# PettyDev
-the petty project in the national contest beloning to the xjrobotics
+# Petty
+a cross-platform project for a robot who cares the pet while the owners are not at home.
