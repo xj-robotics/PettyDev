@@ -14,26 +14,13 @@ from flask import Flask
 import cv2
 from enum import Enum
 
-
-#lower = np.array([40,0,0])
 NULL = 424242#MAGIC NUM
-lower = (25,85,6)
-upper = (64,255,255)
+
 app = Flask("Petty")
-#upper = np.array([85,255,255])
-LowerBlue = np.array([100, 0, 0])
-UpperBlue = np.array([130, 255, 255])
-#cam2 = cv2.VideoCapture(1)#system cam
+
 iBest = -1.0
 String = ""
-R=[30,31,32]
-lower = (25,85,6)
-upper = (64,255,255)
-rounds = []
-normalSpeed = 111#100 to 999
-minShootTime = 1200;#20 minutes = 1200 secs
-pickupThreshold = 20#FIXME
-pickAngleThreshold = 200#FIXME
+
 screenx = 640#camera resolution
 screeny = 320
 
@@ -71,14 +58,6 @@ def scanUno():
         print("current arduino=",arduino)
         return arduino
 
-def takePhotoFromVideoCapture(cam2):#Deprecated,for it delays badly TESTED ,using multi thread pool instead
-    try:
-        _,frame = cam2.read()
-        return frame
-    except:
-        print "take fail.frome takePhoto()"
-        return -1
-
 def takePhoto():#take a photo using outside func
     try:
         os.system("fswebcam -d "+systemDevice+" -r 640x480 --no-banner tot.jpg")
@@ -94,22 +73,18 @@ class Command(Enum):
     STOP = 0
     FORWARD = 1
     BACK = 2
-    LEFT = 3
-    RIGHT = 4
-    TURNLEFT = 5
-    TURNRIGHT = 6
+    TURNLEFT = 3
+    TURNRIGHT = 4
     SHOOT = 8
-    PICK = 7
-    RING = 9
 
 class systemState(Enum):
     empty = 0
     loading = 1
     handmode = 2
     automode_normal = 3
-    automode_retrieve = 4#finding the ball
-    automode_retrieve_go = 5
-    automode_shooting = 6
+    automode_shooting = 4
+    automode_retrieving_station = 5
+    automode_moving_obstacle = 6
 
 class userPreference(Enum):
     PlayDog = 0
@@ -201,8 +176,8 @@ def chg_prf_rd():
     with open("UserPreferences.pk","wb") as filea:
         pickle.dump(strategy,filea)
 #@app.route('/prefer_timelyshoot') TODO
-@app.route('/statistics')
-def debug_print():
+@app.route('/statistics')#the statistics.
+def debug_print():#print today's momentum.
     dst = '''{'''
 
     tot = 0;
@@ -213,8 +188,8 @@ def debug_print():
     dst.join('''}''')
     print dst
 
-@app.route('/statisticsB')
-def debug_printB():#MAGIC
+@app.route('/statisticsB')#magic
+def debug_printB():#MAGIC HACK FIXME
     print '''{8, 10, 12, 13, 15, 13, 31, 35, 45, 46, 42, 52, 71, 67, 70, 41, 35, \
 36, 27, 25, 25, 31, 10, 8}'''
 
@@ -235,12 +210,12 @@ def ReadRawFile(filepath):
         tempa = tempa.replace(" ","").replace("\n","")
     return tempa
 
-def callUnoBase(action,parameter=-1):
+def callUno(action,parameter=-1):
     if not arduino.writable():
         print("E:arduino not writable")
     if (parameter==-1):
         if action==Command.STOP:
-            arduino.write('i')
+            arduino.write('1 000')
             time.sleep(0.5)
             print('writed 1 000')
         else:
@@ -249,34 +224,19 @@ def callUnoBase(action,parameter=-1):
             print('writed ',str(action)+" "+str(normalSpeed))
     else:
         if action==Command.STOP:
-            arduino.write('i')
+            arduino.write('1 000')
             time.sleep(0.5)
             print('writed 1 000')
         else:
             if parameter>0 and parameter<=999:
-                arduino.write('i')
+                arduino.write(str(action)+" "+str(parameter))
                 time.sleep(0.5)
                 print('writed ',str(action)+" "+str(normalSpeed))
             else:
                 print("E:callUno parameter fail")
 
-def callUno(action,parameter=-1):
-    callUnoBase(action,parameter)
-
-
 def dist(x1,y1,x2,y2):
     return math.sqrt((x1-x2)*(x1-x2)+(y1-y2)*(y1-y2))
-
-def photoPool(cam):#grab&throw excessive frames and refresh pool every 0.5 secs
-    bt = time.time()
-    while True:
-        _,frame = cam.grab()
-        if (time.time()-bt)>0.5:
-            _,currentPhoto = cam.read()
-            bt = time.time()
-
-def RadJudge(ballx,bally,screenx,screeny):
-    return (ballx-screenx/2)
 
 def isDangerous(frame1,frame2,px,py):#detect if point(px,py) is in "the moving area of frame"(dog) PASSED
     gray1 = cv2.cvtColor(frame1,cv2.COLOR_BGR2GRAY)#FIXED 1
@@ -295,7 +255,7 @@ def isDangerous(frame1,frame2,px,py):#detect if point(px,py) is in "the moving a
             return True
     return False
 
-def isFineToShoot():#judge
+def isFineToShoot():#judge 1.if is night 2. if too frequent (3.if danger)
     dt = math.fabs(time.time()-lastShootTime)
     #1.judge freq
     if (dt>=minShootTime):#if
@@ -326,46 +286,67 @@ def mood():#TODO:return dog mood based on recently acceleration count,1to100,int
                     hMomentum=0.0#clear the temp momentum
                 raw=''
 
-def dogAlarm():
+def dogAlarm():#thread
     while True:
         if math.fabs(time.time()-lastReceiveBluno)>=5:
             #callUno(Command.RING)
             print "狗狗不见了！"
             time.sleep(2)
-def getCircle(frame2):#returns a num[] contains [x,y,r]
+def getBlueDot(frame2):#returns a num[] contains [x,y,r]
+    lower = (25,85,6)
+    upper = (64,255,255)
+    LowerBlue = np.array([100, 0, 0])
+    UpperBlue = np.array([130, 255, 255])
     if True:
+        element = cv2.getStructuringElement(cv2.MORPH_RECT,(5,5))
+
         HSV =  cv2.cvtColor(frame2,cv2.COLOR_BGR2HSV)
         #H,S,V = cv2.split(HSV)
         mask = cv2.inRange(HSV,lower,upper)
         mask = cv2.erode(mask,None,iterations=2)
-        mask = cv2.dilate(mask,None,iterations=4)
-	    #cv2.imshow("debug",mask)
+        mask = cv2.dilate(mask,None,iterations=2)
         contours = cv2.findContours(mask.copy(),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)[-2]
         center = None
 
         maxPercentage = 0
         maxPercentageContour = None
-        for contour in contours:#TODO:1.for(x,y,r,contourArea,...)
+        for contour in contours:
+        	((x,y),radius) = cv2.minEnclosingCircle(contour)
+        	contourArea = cv2.contourArea(contour)
+        	if contourArea < 100:
+        		continue
+        	pass;
+        	percentage = contourArea / (radius * radius * 3.1415926)
+        	if percentage>maxPercentage and percentage>0.50:#requires DEBUG
+        		maxPercentageContour = contour
+
+        if (maxPercentageContour!=None):
+        	M=cv2.moments(maxPercentageContour)
+            center = (int(M["m10"]/M["m00"]), int(M["m01"] / M["m00"]))
             ((x,y),radius) = cv2.minEnclosingCircle(contour)
-            contourArea = cv2.contourArea(contour)
-            M=cv2.moments(contour)
-            center = (int(M["m10"]/M["m00"]),int(M["m01"]/M["m00"]))
-            percentage = contourArea / (radius * radius * 3.1415926)
-            if percentage>maxPercentage and percentage>0.50 and radius>10.0 and radius<100.0:#requires DEBUG
-                maxPercentageContour = contour
-                maxPercentage = percentage
-        if maxPercentageContour==None:
-            #print "hahahahaha,zhao bu dao"
-            pass
-            return -1
-        else:
-            ((x,y),radius) = cv2.minEnclosingCircle(contour)
-            M=cv2.moments(maxPercentageContour)
-            center = (int(M["m10"]/M["m00"]),int(M["m01"]/M["m00"]))
-            (x,y) = center
-            return [x,y,radius]
+            cv2.circle(frame2,(int(x),int(y)),int(radius),(0,255,255),2)
+            cv2.circle(frame2,center,5,(0,0,255),-1)
+            datatorep = [int(x),int(y),int(radius)]
+            return datatorep
+        # if len(contours)>0:
+        #     c = max(contours,key=cv2.contourArea
+        #     ((x,y),radius) = cv2.minEnclosingCircle(c)
+        #     M=cv2.moments(c)
+        #     center = (int(M["m10"]/M["m00"]), int(M["m01"] / M["m00"]))
+        #     if radius > 10: #confirm it is a ball
+        #         datatorep = [int(x),int(y),int(radius)]
+        #         cv2.circle(frame2,(int(x),int(y)),int(radius),(0,255,255),2)
+        #         cv2.circle(frame2,center,5,(0,0,255),-1)
+        #         return datatorep
 
 
+
+def gotoHome():
+    pass
+    #while (distance):
+    #   while (obstacle) right;
+    #   angle = calc()
+    #   gotoAngle()
 
 def TennisDetect(frame2):#capture a picture and perform a tennis detect
     global lower,upper,LowerBlue,UpperBlue,iBest
@@ -381,132 +362,12 @@ def TennisDetect(frame2):#capture a picture and perform a tennis detect
         return diff
     else:
         return [0,0,0]
-#--------------------------------------------------------------
-state = systemState.loading
-# if True: IGNORED HACK
-#     print("testing connection...")
-#     callUno(Command.FORWARD)
-#     time.sleep(3)
-#     callUno(Command.STOP)
-#     time.sleep(3)
-#     callUno(Command.SHOOT)
-#     time.sleep(3)
-#     callUno(Command.STOP)
-#     print("connection test complete.")
-print "step 1 of 6:read user preferences"
-with open("UserPreferences.pk","rb") as usf:
-    strategy = pickle.load(usf)
-    print("strategy=",strategy)
-print "step 2 of 6:start user respond service"
-thread.start_new_thread(start_http_handler,())
-print "step 3 of 6:start direct play service"
-thread.start_new_thread(start_service,())
-print "PASSED step 4 of 6:start photoPool service"
-# thread.start_new_thread(photoPool,(cam2,))#FIXED
-# using outer func instead
-print "step 5 of 6:start dog mood processing service"
-_ = bluno.read_all()#flush the pool
-thread.start_new_thread(mood,())
-thread.start_new_thread(dogAlarm,())
-print "step 6 of 6:start autoretrieve service"
 
-while True:
-    #print "R:state=<SystemState>",state
-    if math.fabs(uMomentum*2.0)<=0.5:
-        print "--"
-    else:
-        print "心情"+str(uMomentum*2.0)
 
-    if (state==systemState.loading):
-        print "handmode started."
-        state=systemState.handmode
-    elif (state==systemState.automode_normal or state==systemState.automode_shooting):#fixed
-        dogmood = uMomentum*2.0
-        print "uDogmood=",dogmood
-        if dogmood>50:
-            state=systemState.automode_shooting
-            p1 = takePhoto();time.sleep(1); p2 = takePhoto();
-            if not isDangerous(p1,p2,320,240) and isFineToShoot(): #HACK
-                callUno(Command.SHOOT)
-                print "right to shoot:shoot performed."
-                shootTryout = 0;
-                time.sleep(random.randint(5,20))
-                state=systemState.automode_retrieve
-            else:
-                print "isDangerous=",isDangerous(p1,p2,320,240)
-                print "going right"
-                callUno(Command.TURNRIGHT,300)
-                time.sleep(4)
-                print "stop"
-                #time.sleep(5)
-                #print "stop completed"
-                shootTryout = shootTryout+1
-                print "shootTryout=",shootTryout
-                if shootTryout>10:
-                    shootTryout = 0;
-                    state = systemState.automode_normal
-                    print("dog not good,shoot another time.")
-                    lastShootTime = time.time()
-    elif (state==systemState.automode_retrieve):
-        pic = takePhoto();
-        if 1!=-1:#take success HACK FIXME
-            ans = TennisDetect(pic)
-            if ans!=[0,0,0]:#ball found
-                ballHistory.append(ans)
-                if len(ballHistory)>10:#clear data,
-                    for i in range(0,5):
-                        ballHistory.pop(i)
-                _sx=0;_sy=0;_numbercnt=0#calc if the ball has been stopped
-                for (x,y,r) in ballHistory:
-                    _sx=_sx+x
-                    _sy=_sy+y
-                    _numbercnt=_numbercnt+1
-                avgx = _sx/_numbercnt
-                avgy = _sy/_numbercnt
-                print "BALLavgx = ",avgx,"BALLavgy = ",avgy
-                print "pickAngle=",math.fabs(RadJudge(ans[0],ans[1],screenx,screeny))
-                if dist(ans[0],ans[1],avgx,avgy)<=pickupThreshold:#ball stopped
-                    if math.fabs(RadJudge(ans[0],ans[1],screenx,screeny))<=pickAngleThreshold:#angle right
-                            state=systemState.automode_retrieve_go
-                    else:
-                        if math.fabs(RadJudge(ans[0],ans[1],screenx,screeny))>0:
-                            callUno(Command.TURNRIGHT,100)
-                            time.sleep(1)
-                        else:
-                            callUno(Command.TURNLEFT,100)
-                            time.sleep(1)
-            else:#ball not found
-                if len(ballHistory)>0:#trying to track ball based on last appear position
-                    lastID = len(ballHistory)-1
-                    if math.fabs(RadJudge(ballHistory[lastID][0],ballHistory[lastID][1],screenx,screeny))<=pickAngleThreshold:#angle right
-                        state=systemState.automode_retrieve_go
-                    else:
-                        if math.fabs(RadJudge(ballHistory[lastID][0],ballHistory[lastID][1],screenx,screeny))>0:
-                            callUno(Command.TURNRIGHT,150)
-                            time.sleep(1)
-                            callUno(Command.STOP)
-                            time.sleep(1)
-                        else:
-                            callUno(Command.TURNLEFT,150)
-                            time.sleep(1)
-                            callUno(Command.STOP)
-                            time.sleep(1)
-    elif (state==systemState.automode_retrieve_go):
-        pic = takePhoto()
-        if 1!=-1:#HACK FIXME
-            loc = TennisDetect(pic)
-            if loc!=[0,0,0]:#FIXME
-                callUno(Command.FORWARD);
-                pass#SHOULD BE JUDGE WHEN TO PICK THE BALL AND EVENTUALLY PICK IT
-                if (loc[2]>=73):#FIXME
-                    callUno(Command.STOP);
-                    print "close enough!"
-                    time.sleep(2)
-                    callUno(Command.PICK)
-                    time.sleep(2)
-                    state=systemState.automode_normal
-            else:
-                print "ball out-of-sight"
-                state=systemState.automode_retrieve
-    time.sleep(1)#give it a rest
-#---------------------------------------------------------
+#---------------------------------------------------------------------------------
+pic = takePhoto()
+cv2.namedWindow("test",cv2.WINDOW_AUTOSIZE)
+cv2.imshow("test",pic)
+cv2.waitKey(0)
+print "now call tennisdetect.."
+print getBlueDot(pic)

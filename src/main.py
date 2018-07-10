@@ -11,28 +11,17 @@ import serial.tools.list_ports
 import pickle
 import random
 from flask import Flask
+import flask
 import cv2
 from enum import Enum
 
-#lower = np.array([40,0,0])
 NULL = 424242#MAGIC NUM
-lower = (25,85,6)
-upper = (64,255,255)
+
 app = Flask("Petty")
-#upper = np.array([85,255,255])
-LowerBlue = np.array([100, 0, 0])
-UpperBlue = np.array([130, 255, 255])
-#cam2 = cv2.VideoCapture(1)#system cam
+
 iBest = -1.0
 String = ""
-R=[30,31,32]
-lower = (25,85,6)
-upper = (64,255,255)
-rounds = []
-normalSpeed = 111#100 to 999
-minShootTime = 1200;#20 minutes = 1200 secs
-pickupThreshold = 20#FIXME
-pickAngleThreshold = 200#FIXME
+
 screenx = 640#camera resolution
 screeny = 320
 
@@ -41,6 +30,7 @@ directPlayDevice = "/dev/video1"
 
 arduinoLoc = "/dev/ttyACM0"#volatile
 blunoLoc = "/dev/ttyACM1"#volatile
+unoLoc = "/dev/ttyACM2"#volatile
 
 lastReceiveBluno = time.time()
 
@@ -51,11 +41,23 @@ todayMomentum=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]#1-24h
 uMomentum=0.0
 hMomentum=0.0
 hLastEntry=-1#last time update todayMomentum
+
+foodAmount = 0;#TODO
+waterAmount = 0;
+motion = 0;
+
 print "step 0 of 6:perform arduino detection"
 arduino = serial.Serial(arduinoLoc,57600,timeout=1.5,rtscts=True,dsrdtr=True)#FIX
 print("using ",arduino.name," for arduino")
 bluno = serial.Serial(blunoLoc,115200,timeout=1.5)
 print("using",bluno.name," for bluno")
+uno = serial.Serial(unoLoc,9600,timeout=1.5)
+print("using",uno.name," for uno")
+
+print "Now running the Serial check."
+print "please put your hand before the ultrasound detector"
+while (uno.read_all()))#TODO
+
 
 def scanUno():
     port_list = list(serial.tools.list_ports.comports())
@@ -69,14 +71,6 @@ def scanUno():
         print("using ",arduino.name)
         print("current arduino=",arduino)
         return arduino
-
-def takePhotoFromVideoCapture(cam2):#Deprecated,for it delays badly TESTED ,using multi thread pool instead
-    try:
-        _,frame = cam2.read()
-        return frame
-    except:
-        print "take fail.frome takePhoto()"
-        return -1
 
 def takePhoto():#take a photo using outside func
     try:
@@ -93,22 +87,18 @@ class Command(Enum):
     STOP = 0
     FORWARD = 1
     BACK = 2
-    LEFT = 3
-    RIGHT = 4
-    TURNLEFT = 5
-    TURNRIGHT = 6
+    TURNLEFT = 3
+    TURNRIGHT = 4
     SHOOT = 8
-    PICK = 7
-    RING = 9
 
 class systemState(Enum):
     empty = 0
     loading = 1
     handmode = 2
     automode_normal = 3
-    automode_retrieve = 4#finding the ball
-    automode_retrieve_go = 5
-    automode_shooting = 6
+    automode_shooting = 4
+    automode_retrieving_station = 5
+    automode_moving_obstacle = 6
 
 class userPreference(Enum):
     PlayDog = 0
@@ -200,8 +190,11 @@ def chg_prf_rd():
     with open("UserPreferences.pk","wb") as filea:
         pickle.dump(strategy,filea)
 #@app.route('/prefer_timelyshoot') TODO
-@app.route('/statistics')
-def debug_print():
+@app.route('/statistics')#the statistics.
+def showStatistics():
+    return flask.render_template('report.html',motion=motion,food=foodAmount,water = waterAmount)
+
+def debug_print():#print today's momentum.
     dst = '''{'''
 
     tot = 0;
@@ -212,8 +205,8 @@ def debug_print():
     dst.join('''}''')
     print dst
 
-@app.route('/statisticsB')
-def debug_printB():#MAGIC
+@app.route('/statisticsB')#magic
+def debug_printB():#MAGIC HACK FIXME
     print '''{8, 10, 12, 13, 15, 13, 31, 35, 45, 46, 42, 52, 71, 67, 70, 41, 35, \
 36, 27, 25, 25, 31, 10, 8}'''
 
@@ -234,7 +227,7 @@ def ReadRawFile(filepath):
         tempa = tempa.replace(" ","").replace("\n","")
     return tempa
 
-def callUnoBase(action,parameter=-1):
+def callUno(action,parameter=-1):
     if not arduino.writable():
         print("E:arduino not writable")
     if (parameter==-1):
@@ -259,23 +252,8 @@ def callUnoBase(action,parameter=-1):
             else:
                 print("E:callUno parameter fail")
 
-def callUno(action,parameter=-1):
-    callUnoBase(action,parameter)
-
-
 def dist(x1,y1,x2,y2):
     return math.sqrt((x1-x2)*(x1-x2)+(y1-y2)*(y1-y2))
-
-def photoPool(cam):#grab&throw excessive frames and refresh pool every 0.5 secs
-    bt = time.time()
-    while True:
-        _,frame = cam.grab()
-        if (time.time()-bt)>0.5:
-            _,currentPhoto = cam.read()
-            bt = time.time()
-
-def RadJudge(ballx,bally,screenx,screeny):
-    return (ballx-screenx/2)
 
 def isDangerous(frame1,frame2,px,py):#detect if point(px,py) is in "the moving area of frame"(dog) PASSED
     gray1 = cv2.cvtColor(frame1,cv2.COLOR_BGR2GRAY)#FIXED 1
@@ -294,7 +272,7 @@ def isDangerous(frame1,frame2,px,py):#detect if point(px,py) is in "the moving a
             return True
     return False
 
-def isFineToShoot():#judge
+def isFineToShoot():#judge 1.if is night 2. if too frequent (3.if danger)
     dt = math.fabs(time.time()-lastShootTime)
     #1.judge freq
     if (dt>=minShootTime):#if
@@ -325,50 +303,65 @@ def mood():#TODO:return dog mood based on recently acceleration count,1to100,int
                     hMomentum=0.0#clear the temp momentum
                 raw=''
 
-def dogAlarm():
+def dogAlarm():#thread
     while True:
         if math.fabs(time.time()-lastReceiveBluno)>=5:
             #callUno(Command.RING)
             print "狗狗不见了！"
             time.sleep(2)
-def getRedDot(frame2):#returns a num[] contains [x,y,r]
-    #HSV =  cv2.cvtColor(frame2,cv2.COLOR_BGR2HSV)
-    H,S,V = cv2.split(frame2);
-    thr = cv2.threshold(frame2,)
 
-def gotoHome():
-    pass
-    #while (distance):
-    #   while (obstacle) right;
-    #   angle = calc()
-    #   gotoAngle()
+def getBlueDot(frame2):#returns a num[] contains [x,y,r]
+    lower = (25,85,6)
+    upper = (64,255,255)
+    LowerBlue = np.array([100, 0, 0])
+    UpperBlue = np.array([130, 255, 255])
+    if True:
+        element = cv2.getStructuringElement(cv2.MORPH_RECT,(5,5))
 
-def TennisDetect(frame2):#capture a picture and perform a tennis detect
-    global lower,upper,LowerBlue,UpperBlue,iBest
-    #cv2.namedWindow("splitter",cv2.WINDOW_AUTOSIZE)
-    #cv2.namedWindow("debug",cv2.WINDOW_AUTOSIZE)
+        HSV =  cv2.cvtColor(frame2,cv2.COLOR_BGR2HSV)
+        #H,S,V = cv2.split(HSV)
+        mask = cv2.inRange(HSV,lower,upper)
+        mask = cv2.erode(mask,None,iterations=2)
+        mask = cv2.dilate(mask,None,iterations=2)
+        contours = cv2.findContours(mask.copy(),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)[-2]
+        center = None
 
-    diff=getCircle(frame2)
-    #cv2.imshow("splitter",frame2)
-    #cv2.waitKey(1)
-    print diff #show the data containing [x,y,r]
-    #cv2.destroyAllWindows();
-    if diff!=-1:
-        return diff
-    else:
-        return [0,0,0]
-#--------------------------------------------------------------
+        maxPercentage = 0
+        maxPercentageContour = None
+        for contour in contours:
+        	((x,y),radius) = cv2.minEnclosingCircle(contour)
+        	contourArea = cv2.contourArea(contour)
+        	if contourArea < 100:
+        		continue
+        	pass;
+        	percentage = contourArea / (radius * radius * 3.1415926)
+        	if percentage>maxPercentage and percentage>0.50:#requires DEBUG
+        		maxPercentageContour = contour
+
+        if (maxPercentageContour!=None):
+            M=cv2.moments(maxPercentageContour)
+            center = (int(M["m10"]/M["m00"]), int(M["m01"] / M["m00"]))
+            ((x,y),radius) = cv2.minEnclosingCircle(contour)
+            cv2.circle(frame2,(int(x),int(y)),int(radius),(0,255,255),2)
+            cv2.circle(frame2,center,5,(0,0,255),-1)
+            datatorep = [int(x),int(y),int(radius)]
+            return datatorep
+
+def getDirection():#get the base 's direction
+    dot = None;cnt=0
+    while dot==None:
+        cnt=cnt+1
+        pic = takePhoto();dot = getBlueDot()
+        if cnt>10:
+            print "E:返回基站错误::找不到基站"
+            #sys.exit("sorry,goodbye!")
+            return None;
+    angle = math.asin((dot[0]-screenx/2)/(screeny/2-dot[1]))#in rads
+    return angle;
+
+
+#---------------------------------------------------------------------------------
 state = systemState.loading
-# if True: IGNORED HACK
-#     print("testing connection...")
-#     callUno(Command.FORWARD)
-#     time.sleep(3)
-#     callUno(Command.STOP)
-#     time.sleep(3)
-#     callUno(Command.SHOOT)
-#     time.sleep(3)
-#     callUno(Command.STOP)
-#     print("connection test complete.")
 print "step 1 of 6:read user preferences"
 with open("UserPreferences.pk","rb") as usf:
     strategy = pickle.load(usf)
@@ -385,14 +378,12 @@ _ = bluno.read_all()#flush the pool
 thread.start_new_thread(mood,())
 thread.start_new_thread(dogAlarm,())
 print "step 6 of 6:start autoretrieve service"
-
 while True:
     #print "R:state=<SystemState>",state
     if math.fabs(uMomentum*2.0)<=0.5:
         print "--"
     else:
         print "心情"+str(uMomentum*2.0)
-
     if (state==systemState.loading):
         print "handmode started."
         state=systemState.handmode
@@ -485,4 +476,3 @@ while True:
                 print "ball out-of-sight"
                 state=systemState.automode_retrieve
     time.sleep(1)#give it a rest
-#-------------------------------
