@@ -11,6 +11,7 @@ import serial.tools.list_ports
 import pickle
 import random
 from flask import Flask
+import flask
 import cv2
 from enum import Enum
 
@@ -29,6 +30,7 @@ directPlayDevice = "/dev/video1"
 
 arduinoLoc = "/dev/ttyACM0"#volatile
 blunoLoc = "/dev/ttyACM1"#volatile
+unoLoc = "/dev/ttyACM2"#volatile
 
 lastReceiveBluno = time.time()
 
@@ -39,11 +41,23 @@ todayMomentum=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]#1-24h
 uMomentum=0.0
 hMomentum=0.0
 hLastEntry=-1#last time update todayMomentum
+
+foodAmount = 0;#TODO
+waterAmount = 0;
+motion = 0;
+
 print "step 0 of 6:perform arduino detection"
 arduino = serial.Serial(arduinoLoc,57600,timeout=1.5,rtscts=True,dsrdtr=True)#FIX
 print("using ",arduino.name," for arduino")
 bluno = serial.Serial(blunoLoc,115200,timeout=1.5)
 print("using",bluno.name," for bluno")
+uno = serial.Serial(unoLoc,9600,timeout=1.5)
+print("using",uno.name," for uno")
+
+print "Now running the Serial check."
+print "please put your hand before the ultrasound detector"
+while (uno.read_all()))#TODO
+
 
 def scanUno():
     port_list = list(serial.tools.list_ports.comports())
@@ -177,6 +191,9 @@ def chg_prf_rd():
         pickle.dump(strategy,filea)
 #@app.route('/prefer_timelyshoot') TODO
 @app.route('/statistics')#the statistics.
+def showStatistics():
+    return flask.render_template('report.html',motion=motion,food=foodAmount,water = waterAmount)
+
 def debug_print():#print today's momentum.
     dst = '''{'''
 
@@ -292,6 +309,7 @@ def dogAlarm():#thread
             #callUno(Command.RING)
             print "狗狗不见了！"
             time.sleep(2)
+
 def getBlueDot(frame2):#returns a num[] contains [x,y,r]
     lower = (25,85,6)
     upper = (64,255,255)
@@ -328,40 +346,18 @@ def getBlueDot(frame2):#returns a num[] contains [x,y,r]
             cv2.circle(frame2,center,5,(0,0,255),-1)
             datatorep = [int(x),int(y),int(radius)]
             return datatorep
-        # if len(contours)>0:
-        #     c = max(contours,key=cv2.contourArea
-        #     ((x,y),radius) = cv2.minEnclosingCircle(c)
-        #     M=cv2.moments(c)
-        #     center = (int(M["m10"]/M["m00"]), int(M["m01"] / M["m00"]))
-        #     if radius > 10: #confirm it is a ball
-        #         datatorep = [int(x),int(y),int(radius)]
-        #         cv2.circle(frame2,(int(x),int(y)),int(radius),(0,255,255),2)
-        #         cv2.circle(frame2,center,5,(0,0,255),-1)
-        #         return datatorep
 
-
-
-def gotoHome():
-    pass
-    #while (distance):
-    #   while (obstacle) right;
-    #   angle = calc()
-    #   gotoAngle()
-
-def TennisDetect(frame2):#capture a picture and perform a tennis detect
-    global lower,upper,LowerBlue,UpperBlue,iBest
-    #cv2.namedWindow("splitter",cv2.WINDOW_AUTOSIZE)
-    #cv2.namedWindow("debug",cv2.WINDOW_AUTOSIZE)
-
-    diff=getCircle(frame2)
-    #cv2.imshow("splitter",frame2)
-    #cv2.waitKey(1)
-    print diff #show the data containing [x,y,r]
-    #cv2.destroyAllWindows();
-    if diff!=-1:
-        return diff
-    else:
-        return [0,0,0]
+def getDirection():#get the base 's direction
+    dot = None;cnt=0
+    while dot==None:
+        cnt=cnt+1
+        pic = takePhoto();dot = getBlueDot()
+        if cnt>10:
+            print "E:返回基站错误::找不到基站"
+            #sys.exit("sorry,goodbye!")
+            return None;
+    angle = math.asin((dot[0]-screenx/2)/(screeny/2-dot[1]))#in rads
+    return angle;
 
 
 #---------------------------------------------------------------------------------
