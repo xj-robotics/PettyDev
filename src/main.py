@@ -339,7 +339,7 @@ def getBlueDot(frame2):#returns a num[] contains [x,y,r]
         		maxPercentageContour = contour
 
         if (maxPercentageContour!=None):
-        	M=cv2.moments(maxPercentageContour)
+            M=cv2.moments(maxPercentageContour)
             center = (int(M["m10"]/M["m00"]), int(M["m01"] / M["m00"]))
             ((x,y),radius) = cv2.minEnclosingCircle(contour)
             cv2.circle(frame2,(int(x),int(y)),int(radius),(0,255,255),2)
