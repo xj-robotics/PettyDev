@@ -292,10 +292,53 @@ def dogAlarm():#thread
             #callUno(Command.RING)
             print "狗狗不见了！"
             time.sleep(2)
-def getRedDot(frame2):#returns a num[] contains [x,y,r]
-    #HSV =  cv2.cvtColor(frame2,cv2.COLOR_BGR2HSV)
-    H,S,V = cv2.split(frame2);
-    thr = cv2.threshold(H,127,255,cv2.THRESH_BINARY)
+def getBlueDot(frame2):#returns a num[] contains [x,y,r]
+    lower = (25,85,6)
+    upper = (64,255,255)
+    LowerBlue = np.array([100, 0, 0])
+    UpperBlue = np.array([130, 255, 255])
+    if True:
+        element = cv2.getStructuringElement(cv2.MORPH_RECT,(5,5))
+
+        HSV =  cv2.cvtColor(frame2,cv2.COLOR_BGR2HSV)
+        #H,S,V = cv2.split(HSV)
+        mask = cv2.inRange(HSV,lower,upper)
+        mask = cv2.erode(mask,None,iterations=2)
+        mask = cv2.dilate(mask,None,iterations=2)
+        contours = cv2.findContours(mask.copy(),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)[-2]
+        center = None
+
+        maxPercentage = 0
+        maxPercentageContour = None
+        for contour in contours:
+        	((x,y),radius) = cv2.minEnclosingCircle(contour)
+        	contourArea = cv2.contourArea(contour)
+        	if contourArea < 100:
+        		continue
+        	pass;
+        	percentage = contourArea / (radius * radius * 3.1415926)
+        	if percentage>maxPercentage and percentage>0.50:#requires DEBUG
+        		maxPercentageContour = contour
+
+        if (maxPercentageContour!=None):
+        	M=cv2.moments(maxPercentageContour)
+            center = (int(M["m10"]/M["m00"]), int(M["m01"] / M["m00"]))
+            ((x,y),radius) = cv2.minEnclosingCircle(contour)
+            cv2.circle(frame2,(int(x),int(y)),int(radius),(0,255,255),2)
+            cv2.circle(frame2,center,5,(0,0,255),-1)
+            datatorep = [int(x),int(y),int(radius)]
+            return datatorep
+        # if len(contours)>0:
+        #     c = max(contours,key=cv2.contourArea
+        #     ((x,y),radius) = cv2.minEnclosingCircle(c)
+        #     M=cv2.moments(c)
+        #     center = (int(M["m10"]/M["m00"]), int(M["m01"] / M["m00"]))
+        #     if radius > 10: #confirm it is a ball
+        #         datatorep = [int(x),int(y),int(radius)]
+        #         cv2.circle(frame2,(int(x),int(y)),int(radius),(0,255,255),2)
+        #         cv2.circle(frame2,center,5,(0,0,255),-1)
+        #         return datatorep
+
 
 
 def gotoHome():
